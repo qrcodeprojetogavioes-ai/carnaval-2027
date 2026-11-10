@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Controle de Presença - Carnaval 2027</title>
+
+<script src="https://unpkg.com/html5-qrcode"></script>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 20px;
+  background: #101820;
+  font-family: Arial, sans-serif;
+  text-align: center;
+  color: white;
+}
+
+h1 {
+  font-size: 26px;
+  margin-top: 20px;
+}
+
+h2 {
+  font-size: 22px;
+  margin-bottom: 25px;
+}
+
+.container {
+  background: white;
+  color: #111;
+  max-width: 480px;
+  margin: auto;
+  padding: 25px 20px;
+  border-radius: 16px;
+}
+
+label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 17px;
+}
+
+select {
+  width: 100%;
+  padding: 15px;
+  font-size: 17px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+button {
+  width: 100%;
+  padding: 17px;
+  background: #087f45;
+  color: white;
+  font-size: 17px;
+  font-weight: bold;
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+#reader {
+  width: 100%;
+  margin-top: 20px;
+}
+
+#resultado {
+  margin-top: 20px;
+  padding: 15px;
+  border-radius: 8px;
+  font-weight: bold;
+  overflow-wrap: anywhere;
+}
+
+.sucesso {
+  background: #d5f5df;
+  color: #087f45;
+}
+
+.erro {
+  background: #ffdada;
+  color: #a00000;
+}
+
+.info {
+  background: #e8f0fe;
+  color: #174ea6;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🎭 CARNAVAL 2027</h1>
+<h2>CONTROLE DE PRESENÇA</h2>
+
+<div class="container">
+
+<label>Identificação do fiscal:</label>
+
+<select id="fiscal">
+  <option value="Fiscal 1">Fiscal 1</option>
+  <option value="Fiscal 2">Fiscal 2</option>
+  <option value="Fiscal 3">Fiscal 3</option>
+  <option value="Fiscal 4">Fiscal 4</option>
+</select>
+
+<button id="iniciar" onclick="iniciarLeitor()">
+📷 INICIAR LEITURA
+</button>
+
+<div id="reader"></div>
+
+<div id="resultado" class="info">
+Aguardando início da leitura...
+</div>
+
+</div>
+
+<script>
+
+const SERVIDOR = 'https://script.google.com/macros/s/AKfycbxNHG0R4NAfkNBOwW0gT6k8YG-x7U_iuO_dy9QDZfk6FihB4l5wc05T453VzGEi-ryK/exec';
+
+let leitor = null;
+let ocupado = false;
+
+function mostrarMensagem(texto, classe) {
+
+  const resultado = document.getElementById("resultado");
+
+  resultado.innerHTML = texto;
+  resultado.className = classe;
+
+}
+
+function enviarPresenca(codigo) {
+
+  return new Promise((resolve, reject) => {
+
+    const nomeCallback = 'cb_' + Date.now();
+
+    const script = document.createElement('script');
+
+    const fiscal = document.getElementById('fiscal').value;
+
+    const parametros = new URLSearchParams({
+      action: 'registrar',
+      codigo: codigo,
+      fiscal: fiscal,
+      callback: nomeCallback
+    });
+
+    const timeout = setTimeout(() => {
+      limpar();
+      reject(new Error('Tempo de resposta excedido.'));
+    }, 20000);
+
+    function limpar() {
+      clearTimeout(timeout);
+      delete window[nomeCallback];
+      script.remove();
+    }
+
+    window[nomeCallback] = function(resposta) {
+      limpar();
+      resolve(resposta);
+    };
+
+    script.onerror = function() {
+      limpar();
+      reject(new Error('Falha na comunicação com o servidor.'));
+    };
+
+    script.src = SERVIDOR + '?' + parametros.toString();
+
+    document.body.appendChild(script);
+
+  });
+
+}
+
+async function registrarLeitura(codigo) {
+
+  ocupado = true;
+
+  mostrarMensagem('⏳ Registrando presença...', 'info');
+
+  try {
+
+    const resposta = await enviarPresenca(codigo);
+
+    if (!resposta.sucesso) {
+      throw new Error(resposta.mensagem);
+    }
+
+    mostrarMensagem(
+      '✅ PRESENÇA REGISTRADA!<br><br>' +
+      'Nome: ' + resposta.nome +
+      '<br>Ala: ' + resposta.ala,
+      'sucesso'
+    );
+
+    setTimeout(() => {
+
+      mostrarMensagem(
+        '📷 Aguardando próxima leitura...',
+        'info'
+      );
+
+      ocupado = false;
+
+    }, 2000);
+
+  } catch (erro) {
+
+    mostrarMensagem(
+      '❌ ERRO: ' + erro.message,
+      'erro'
+    );
+
+    setTimeout(() => {
+
+      mostrarMensagem(
+        '📷 Aguardando próxima leitura...',
+        'info'
+      );
+
+      ocupado = false;
+
+    }, 3000);
+
+  }
+
+}
+
+async function iniciarLeitor() {
+
+  if (leitor) return;
+
+  const botao = document.getElementById('iniciar');
+
+  botao.disabled = true;
+  botao.innerText = 'ABRINDO CÂMERA...';
+
+  leitor = new Html5Qrcode("reader");
+
+  try {
+
+    await leitor.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 }
+      },
+
+      (codigo) => {
+
+        if (!ocupado) {
+          registrarLeitura(codigo);
+        }
+
+      },
+
+      () => {}
+
+    );
+
+    botao.innerText = '📷 CÂMERA ATIVA';
+
+    mostrarMensagem(
+      'Posicione o QR Code dentro da área de leitura.',
+      'info'
+    );
+
+  } catch (erro) {
+
+    leitor = null;
+    botao.disabled = false;
+    botao.innerText = '📷 TENTAR NOVAMENTE';
+
+    mostrarMensagem(
+      '❌ Não foi possível abrir a câmera: ' + erro,
+      'erro'
+    );
+
+  }
+
+}
+
+</script>
+
+</body>
+</html>
